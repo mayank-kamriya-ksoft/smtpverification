@@ -44,119 +44,103 @@ export default function Home() {
     );
   };
 
-  const simulateVerification = async (email: string) => {
+  const performRealVerification = async (email: string) => {
     setIsVerifying(true);
     setResult(null);
     
     // Reset steps
     setSteps(steps.map(s => ({ ...s, status: "pending" })));
 
-    // Step 1: DNS
-    updateStep("dns", "active");
-    await new Promise(r => setTimeout(r, 600));
-    updateStep("dns", "completed");
+    console.group("🔒 Real SMTP Verification Request");
+    console.log(`Verifying email: ${email}`);
+    console.log("Backend endpoint: POST /api/verify/smtp");
 
-    // Step 2: MX
-    updateStep("mx", "active");
-    await new Promise(r => setTimeout(r, 800));
-    updateStep("mx", "completed");
+    try {
+      // Visual feedback: mark steps as active as they progress
+      updateStep("dns", "active");
+      await new Promise(r => setTimeout(r, 300));
+      
+      updateStep("mx", "active");
+      await new Promise(r => setTimeout(r, 300));
+      
+      updateStep("connect", "active");
+      await new Promise(r => setTimeout(r, 300));
+      
+      updateStep("handshake", "active");
+      updateStep("verify", "active");
 
-    // Step 3: Connection
-    updateStep("connect", "active");
-    await new Promise(r => setTimeout(r, 1200));
-    updateStep("connect", "completed");
+      // Make actual API call to backend
+      console.log("📡 Sending request to backend...");
+      const response = await fetch("/api/verify/smtp", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ email }),
+      });
 
-    // Step 4: Handshake
-    updateStep("handshake", "active");
-    await new Promise(r => setTimeout(r, 1000));
-    updateStep("handshake", "completed");
+      console.log(`📨 Response status: ${response.status}`);
 
-    // Step 5: Verify
-    updateStep("verify", "active");
-    await new Promise(r => setTimeout(r, 800));
-    updateStep("verify", "completed");
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: "Unknown error" }));
+        console.error("❌ Backend error:", errorData);
+        
+        // Mark all steps as completed
+        setSteps(steps.map(s => ({ ...s, status: "completed" })));
+        
+        // Show error result
+        setResult({
+          email,
+          status: "unknown",
+          smtp_code: 0,
+          mx_server: "error",
+          attempts: 1,
+          is_catch_all: false,
+          is_temporary_error: false,
+          reason: errorData.message || errorData.error || `HTTP ${response.status} error`,
+          time_taken_ms: 0
+        });
+        
+        setIsVerifying(false);
+        console.groupEnd();
+        return;
+      }
 
-    // Generate Result
-    console.group("🔒 Deep SMTP Verification Simulation Logic");
-    console.log(`Analyzing email input: "${email}"`);
+      const data: VerificationResult = await response.json();
+      console.log("✅ Verification result received:", data);
 
-    const isYahoo = email.toLowerCase().includes("yahoo");
-    const isInvalid = email.toLowerCase().includes("invalid");
-    const isCatchAll = email.toLowerCase().includes("catchall");
-    
-    console.log("Simulation Pattern Matchers:", {
-      "Contains 'yahoo' (triggers retry logic)": isYahoo,
-      "Contains 'invalid' (triggers 550 error)": isInvalid,
-      "Contains 'catchall' (triggers catch-all state)": isCatchAll
-    });
+      // Mark all steps as completed
+      setSteps(steps.map(s => ({ ...s, status: "completed" })));
 
-    let finalResult: VerificationResult;
+      setResult(data);
+      setIsVerifying(false);
+      console.groupEnd();
 
-    if (isInvalid) {
-      console.log("🚫 Simulation: Triggering INVALID state (550 User Not Found)");
-      finalResult = {
+    } catch (error: any) {
+      console.error("❌ Network or parsing error:", error);
+      
+      // Mark all steps as completed (with error)
+      setSteps(steps.map(s => ({ ...s, status: "completed" })));
+      
+      setResult({
         email,
-        status: "invalid",
-        smtp_code: 550,
-        mx_server: "mx1.mail-server.com",
+        status: "unknown",
+        smtp_code: 0,
+        mx_server: "error",
         attempts: 1,
         is_catch_all: false,
         is_temporary_error: false,
-        reason: "Mailbox does not exist",
-        time_taken_ms: 456
-      };
-    } else if (isCatchAll) {
-      console.log("🛡️ Simulation: Triggering CATCH_ALL state (Accepts all mail)");
-      finalResult = {
-        email,
-        status: "catch_all",
-        smtp_code: 250,
-        mx_server: "aspmx.l.google.com",
-        attempts: 1,
-        is_catch_all: true,
-        is_temporary_error: false,
-        reason: "Server accepts all emails",
-        time_taken_ms: 320
-      };
-    } else if (isYahoo) {
-      console.log("🔄 Simulation: Triggering GREYLIST/RETRY logic (Yahoo pattern)");
-      // Simulate a retry scenario that eventually succeeds or fails
-      finalResult = {
-        email,
-        status: "valid",
-        smtp_code: 250,
-        mx_server: "mta7.am0.yahoodns.net",
-        attempts: 3,
-        is_catch_all: false,
-        is_temporary_error: true,
-        reason: "Verified after retry",
-        time_taken_ms: 1250
-      };
-    } else {
-      console.warn("⚠️ Simulation: No specific error pattern matched. Defaulting to VALID (250 OK).");
-      console.info("ℹ️ To test errors, include 'invalid' or 'catchall' in the email address.");
-      finalResult = {
-        email,
-        status: "valid",
-        smtp_code: 250,
-        mx_server: "mx.example.com",
-        attempts: 1,
-        is_catch_all: false,
-        is_temporary_error: false,
-        reason: "Mailbox exists",
-        time_taken_ms: 245
-      };
+        reason: `Client error: ${error.message}`,
+        time_taken_ms: 0
+      });
+      
+      setIsVerifying(false);
+      console.groupEnd();
     }
-
-    console.log("✅ Final Simulated Result:", finalResult);
-    console.groupEnd();
-
-    setResult(finalResult);
-    setIsVerifying(false);
   };
 
   function onSubmit(values: z.infer<typeof formSchema>) {
-    simulateVerification(values.email);
+    performRealVerification(values.email);
   }
 
   return (
