@@ -77,13 +77,23 @@ export default function Home() {
     updateStep("verify", "completed");
 
     // Generate Result
+    console.group("🔒 Deep SMTP Verification Simulation Logic");
+    console.log(`Analyzing email input: "${email}"`);
+
     const isYahoo = email.toLowerCase().includes("yahoo");
     const isInvalid = email.toLowerCase().includes("invalid");
     const isCatchAll = email.toLowerCase().includes("catchall");
     
+    console.log("Simulation Pattern Matchers:", {
+      "Contains 'yahoo' (triggers retry logic)": isYahoo,
+      "Contains 'invalid' (triggers 550 error)": isInvalid,
+      "Contains 'catchall' (triggers catch-all state)": isCatchAll
+    });
+
     let finalResult: VerificationResult;
 
     if (isInvalid) {
+      console.log("🚫 Simulation: Triggering INVALID state (550 User Not Found)");
       finalResult = {
         email,
         status: "invalid",
@@ -96,6 +106,7 @@ export default function Home() {
         time_taken_ms: 456
       };
     } else if (isCatchAll) {
+      console.log("🛡️ Simulation: Triggering CATCH_ALL state (Accepts all mail)");
       finalResult = {
         email,
         status: "catch_all",
@@ -108,6 +119,7 @@ export default function Home() {
         time_taken_ms: 320
       };
     } else if (isYahoo) {
+      console.log("🔄 Simulation: Triggering GREYLIST/RETRY logic (Yahoo pattern)");
       // Simulate a retry scenario that eventually succeeds or fails
       finalResult = {
         email,
@@ -121,6 +133,8 @@ export default function Home() {
         time_taken_ms: 1250
       };
     } else {
+      console.warn("⚠️ Simulation: No specific error pattern matched. Defaulting to VALID (250 OK).");
+      console.info("ℹ️ To test errors, include 'invalid' or 'catchall' in the email address.");
       finalResult = {
         email,
         status: "valid",
@@ -133,6 +147,9 @@ export default function Home() {
         time_taken_ms: 245
       };
     }
+
+    console.log("✅ Final Simulated Result:", finalResult);
+    console.groupEnd();
 
     setResult(finalResult);
     setIsVerifying(false);
