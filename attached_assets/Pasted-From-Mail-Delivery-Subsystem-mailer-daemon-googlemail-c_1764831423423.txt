@@ -1,0 +1,74 @@
+From: Mail Delivery Subsystem <mailer-daemon@googlemail.com>
+Date: Thu, Dec 4, 2025 at 12:21=E2=80=AFPM
+Subject: Delivery Status Notification (Failure)
+To: <mydealdiscount@gmail.com>
+
+
+[image: Error Icon]
+Address not found
+Your message wasn't delivered to *anna.brown@yahoo.com* because the address
+couldn't be found, or is unable to receive mail.
+The response from the remote server was:
+
+552 1 Requested mail action aborted, mailbox not found
+
+--000000000000af889706451ac786
+Content-Type: text/html; charset="UTF-8"
+Content-Transfer-Encoding: quoted-printable
+
+<div dir=3D"ltr"><br><br><div class=3D"gmail_quote gmail_quote_container"><=
+div dir=3D"ltr" class=3D"gmail_attr">---------- Forwarded message ---------=
+<br>From: <b class=3D"gmail_sendername" dir=3D"auto">Mail Delivery Subsyste=
+m</b> <span dir=3D"auto">&lt;<a href=3D"mailto:mailer-daemon@googlemail.com=
+">mailer-daemon@googlemail.com</a>&gt;</span><br>Date: Thu, Dec 4, 2025 at =
+12:21=E2=80=AFPM<br>Subject: Delivery Status Notification (Failure)<br>To: =
+ &lt;<a href=3D"mailto:mydealdiscount@gmail.com">mydealdiscount@gmail.com</=
+a>&gt;<br></div><br><br><div class=3D"msg-471253055293146599">
+
+
+
+
+<div>
+<table cellpadding=3D"0" cellspacing=3D"0" style=3D"padding-top:32px;backgr=
+ound-color:#ffffff"><tbody>
+<tr><td>
+<table cellpadding=3D"0" cellspacing=3D"0"><tbody>
+<tr><td style=3D"max-width:560px;padding:24px 24px 32px;background-color:#f=
+afafa;border:1px solid #e0e0e0;border-radius:2px">
+<img style=3D"padding:0 24px 16px 0;float:left" width=3D"72" height=3D"72" =
+alt=3D"Error Icon" src=3D"cid:ii_19ae8226819d3f2f3341">
+<table style=3D"min-width:272px;padding-top:8px"><tbody>
+<tr><td><h2 style=3D"font-size:20px;color:#212121;font-weight:bold;margin:0=
+">
+Address not found
+</h2></td></tr>
+<tr><td style=3D"padding-top:20px;color:#757575;font-size:16px;font-weight:=
+normal;text-align:left">
+Your message wasn&#39;t delivered to <a style=3D"color:#212121;text-decorat=
+ion:none"><b>anna.brown@yahoo.com</b></a> because the address couldn&#39;t =
+be found, or is unable to receive mail.
+</td></tr>
+</tbody></table>
+</td></tr>
+</tbody></table>
+</td></tr>
+<tr style=3D"border:none;background-color:#fff;font-size:12.8px;width:90%">
+<td align=3D"left" style=3D"padding:48px 10px">
+The response from the remote server was:<br>
+<p style=3D"font-family:monospace">
+552 1 Requested mail action aborted, mailbox not found
+</p>
+</td>
+</tr>
+</tbody></table>
+</div>
+
+</div></div></div>
+
+--000000000000af889706451ac786--
+--000000000000af889806451ac787
+Content-Type: image/png; name="icon.png"
+Content-Disposition: inline; filename="icon.png"
+Content-Transfer-Encoding: base64
+Content-ID: <ii_19ae8226819d3f2f3341>
+X-Attachment-Id: ii_19ae8226819d3f2f3341
