@@ -97,6 +97,8 @@ export default function Home() {
           attempts: 1,
           is_catch_all: false,
           is_temporary_error: false,
+          can_deliver: null,
+          is_inbox_full: null,
           reason: errorData.message || errorData.error || `HTTP ${response.status} error`,
           time_taken_ms: 0
         });
@@ -130,6 +132,8 @@ export default function Home() {
         attempts: 1,
         is_catch_all: false,
         is_temporary_error: false,
+        can_deliver: null,
+        is_inbox_full: null,
         reason: `Client error: ${error.message}`,
         time_taken_ms: 0
       });
