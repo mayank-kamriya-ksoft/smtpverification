@@ -1,6 +1,6 @@
 import { motion } from "framer-motion";
-import { CheckCircle, XCircle, AlertCircle, Shield, Server, Clock, Activity } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { CheckCircle, XCircle, AlertCircle, Shield, Server, Clock, Activity, Inbox, Send, HelpCircle } from "lucide-react";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 
 export type VerificationResult = {
@@ -11,6 +11,8 @@ export type VerificationResult = {
   attempts: number;
   is_catch_all: boolean;
   is_temporary_error: boolean;
+  can_deliver: boolean | null;
+  is_inbox_full: boolean | null;
   reason: string;
   time_taken_ms: number;
 };
@@ -38,12 +40,38 @@ export function VerificationCard({ result }: VerificationCardProps) {
     }
   };
 
+  const getBooleanDisplay = (value: boolean | null) => {
+    if (value === null) {
+      return {
+        text: "Unknown",
+        icon: <HelpCircle className="w-4 h-4" />,
+        color: "text-slate-500 bg-slate-100"
+      };
+    }
+    if (value === true) {
+      return {
+        text: "Yes",
+        icon: <CheckCircle className="w-4 h-4" />,
+        color: "text-green-600 bg-green-50"
+      };
+    }
+    return {
+      text: "No",
+      icon: <XCircle className="w-4 h-4" />,
+      color: "text-red-600 bg-red-50"
+    };
+  };
+
+  const canDeliverDisplay = getBooleanDisplay(result.can_deliver);
+  const inboxFullDisplay = getBooleanDisplay(result.is_inbox_full);
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.5 }}
       className="w-full max-w-4xl mx-auto mt-8"
+      data-testid="card-verification-result"
     >
       <Card className="overflow-hidden border-2 shadow-lg">
         <CardHeader className="bg-slate-50/50 border-b pb-8 pt-8">
@@ -53,49 +81,69 @@ export function VerificationCard({ result }: VerificationCardProps) {
                 {getIcon(result.status)}
               </div>
               <div>
-                <h2 className="text-2xl font-bold text-slate-900">{result.email}</h2>
-                <div className="flex items-center gap-2 mt-1">
-                  <Badge variant="outline" className={`text-sm font-medium px-3 py-0.5 rounded-full border ${getStatusColor(result.status)}`}>
+                <h2 className="text-2xl font-bold text-slate-900" data-testid="text-email">{result.email}</h2>
+                <div className="flex items-center gap-2 mt-1 flex-wrap">
+                  <Badge variant="outline" className={`text-sm font-medium px-3 py-0.5 rounded-full border ${getStatusColor(result.status)}`} data-testid="badge-status">
                     {result.status.toUpperCase()}
                   </Badge>
-                  <span className="text-sm text-slate-500 font-mono">SMTP Code: {result.smtp_code}</span>
+                  <span className="text-sm text-slate-500 font-mono" data-testid="text-smtp-code">SMTP Code: {result.smtp_code}</span>
                 </div>
               </div>
             </div>
             <div className="text-right">
               <div className="text-sm text-slate-500">Confidence Score</div>
-              <div className="text-3xl font-bold text-slate-900">
+              <div className="text-3xl font-bold text-slate-900" data-testid="text-confidence">
                 {result.status === "valid" ? "98%" : result.status === "catch_all" ? "75%" : "100%"}
               </div>
             </div>
           </div>
         </CardHeader>
         <CardContent className="p-6 bg-white">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-8">
             <div className="flex items-start gap-3 p-4 rounded-lg bg-slate-50 border border-slate-100">
-              <Server className="w-5 h-5 text-slate-400 mt-0.5" />
-              <div>
+              <Server className="w-5 h-5 text-slate-400 mt-0.5 shrink-0" />
+              <div className="min-w-0">
                 <div className="text-xs font-medium text-slate-500 uppercase tracking-wider">MX Server</div>
-                <div className="text-sm font-medium text-slate-900 font-mono mt-1 truncate" title={result.mx_server}>
+                <div className="text-sm font-medium text-slate-900 font-mono mt-1 truncate" title={result.mx_server} data-testid="text-mx-server">
                   {result.mx_server}
                 </div>
               </div>
             </div>
             <div className="flex items-start gap-3 p-4 rounded-lg bg-slate-50 border border-slate-100">
-              <Clock className="w-5 h-5 text-slate-400 mt-0.5" />
+              <Clock className="w-5 h-5 text-slate-400 mt-0.5 shrink-0" />
               <div>
                 <div className="text-xs font-medium text-slate-500 uppercase tracking-wider">Response Time</div>
-                <div className="text-sm font-medium text-slate-900 font-mono mt-1">
+                <div className="text-sm font-medium text-slate-900 font-mono mt-1" data-testid="text-response-time">
                   {result.time_taken_ms}ms
                 </div>
               </div>
             </div>
             <div className="flex items-start gap-3 p-4 rounded-lg bg-slate-50 border border-slate-100">
-              <Activity className="w-5 h-5 text-slate-400 mt-0.5" />
+              <Activity className="w-5 h-5 text-slate-400 mt-0.5 shrink-0" />
               <div>
                 <div className="text-xs font-medium text-slate-500 uppercase tracking-wider">Attempts</div>
-                <div className="text-sm font-medium text-slate-900 font-mono mt-1">
-                  {result.attempts} (Success)
+                <div className="text-sm font-medium text-slate-900 font-mono mt-1" data-testid="text-attempts">
+                  {result.attempts}
+                </div>
+              </div>
+            </div>
+            <div className="flex items-start gap-3 p-4 rounded-lg border border-slate-100" style={{ backgroundColor: result.can_deliver === true ? '#f0fdf4' : result.can_deliver === false ? '#fef2f2' : '#f8fafc' }}>
+              <Send className={`w-5 h-5 mt-0.5 shrink-0 ${result.can_deliver === true ? 'text-green-500' : result.can_deliver === false ? 'text-red-500' : 'text-slate-400'}`} />
+              <div>
+                <div className="text-xs font-medium text-slate-500 uppercase tracking-wider">Can Deliver</div>
+                <div className={`text-sm font-semibold mt-1 flex items-center gap-1.5 ${canDeliverDisplay.color.split(' ')[0]}`} data-testid="text-can-deliver">
+                  {canDeliverDisplay.icon}
+                  <span>{canDeliverDisplay.text}</span>
+                </div>
+              </div>
+            </div>
+            <div className="flex items-start gap-3 p-4 rounded-lg border border-slate-100" style={{ backgroundColor: result.is_inbox_full === true ? '#fef2f2' : result.is_inbox_full === false ? '#f0fdf4' : '#f8fafc' }}>
+              <Inbox className={`w-5 h-5 mt-0.5 shrink-0 ${result.is_inbox_full === true ? 'text-red-500' : result.is_inbox_full === false ? 'text-green-500' : 'text-slate-400'}`} />
+              <div>
+                <div className="text-xs font-medium text-slate-500 uppercase tracking-wider">Inbox Full</div>
+                <div className={`text-sm font-semibold mt-1 flex items-center gap-1.5 ${inboxFullDisplay.color.split(' ')[0]}`} data-testid="text-inbox-full">
+                  {inboxFullDisplay.icon}
+                  <span>{inboxFullDisplay.text}</span>
                 </div>
               </div>
             </div>
@@ -105,7 +153,7 @@ export function VerificationCard({ result }: VerificationCardProps) {
             <div className="absolute top-0 right-0 px-2 py-1 bg-slate-100 text-xs font-mono text-slate-500 rounded-bl-lg rounded-tr-lg border-l border-b">
               JSON Output
             </div>
-            <pre className="bg-slate-950 text-slate-50 p-6 rounded-xl overflow-x-auto text-sm font-mono border border-slate-800 shadow-inner">
+            <pre className="bg-slate-950 text-slate-50 p-6 rounded-xl overflow-x-auto text-sm font-mono border border-slate-800 shadow-inner" data-testid="json-output">
               {JSON.stringify(result, null, 2)}
             </pre>
           </div>

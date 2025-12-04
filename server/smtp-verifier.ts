@@ -11,6 +11,8 @@ export interface VerificationResult {
   attempts: number;
   is_catch_all: boolean;
   is_temporary_error: boolean;
+  can_deliver: boolean | null;
+  is_inbox_full: boolean | null;
   reason: string;
   time_taken_ms: number;
 }
@@ -20,9 +22,24 @@ interface MXRecord {
   priority: number;
 }
 
-const SMTP_TIMEOUT = 15000; // 15 seconds per attempt
+const SMTP_TIMEOUT = 15000;
 const MAX_RETRIES = 3;
-const RETRY_DELAYS = [1000, 3000, 10000]; // 1s, 3s, 10s with jitter
+const RETRY_DELAYS = [1000, 3000, 10000];
+
+const INBOX_FULL_KEYWORDS = [
+  "mailbox full",
+  "mailbox is full",
+  "quota exceeded",
+  "over quota",
+  "exceeded storage",
+  "storage allocation",
+  "insufficient storage",
+  "out of space",
+  "disk quota",
+  "mailbox size limit",
+  "user over quota",
+  "recipient rejected: mailbox full"
+];
 
 export class SMTPVerifier {
   private fromEmail: string;
@@ -31,38 +48,69 @@ export class SMTPVerifier {
     this.fromEmail = fromEmail;
   }
 
-  /**
-   * Add random jitter to delay (±30%)
-   */
   private addJitter(delay: number): number {
     const jitter = delay * 0.3;
     return delay + (Math.random() * jitter * 2 - jitter);
   }
 
-  /**
-   * Main entry point for email verification
-   */
+  private detectInboxFull(code: number, message: string): boolean {
+    if (code === 452 || code === 552) {
+      console.log(`📦 Inbox full detected via SMTP code ${code}`);
+      return true;
+    }
+    
+    const lowerMessage = message.toLowerCase();
+    for (const keyword of INBOX_FULL_KEYWORDS) {
+      if (lowerMessage.includes(keyword)) {
+        console.log(`📦 Inbox full detected via keyword: "${keyword}"`);
+        return true;
+      }
+    }
+    
+    return false;
+  }
+
+  private determineDeliverability(status: VerificationStatus, isInboxFull: boolean): boolean | null {
+    if (isInboxFull) {
+      console.log(`📬 can_deliver = false (inbox is full)`);
+      return false;
+    }
+    
+    switch (status) {
+      case "valid":
+        console.log(`📬 can_deliver = true (mailbox exists and accepts mail)`);
+        return true;
+      case "invalid":
+        console.log(`📬 can_deliver = false (mailbox does not exist)`);
+        return false;
+      case "catch_all":
+        console.log(`📬 can_deliver = null (catch-all server, cannot verify)`);
+        return null;
+      case "unknown":
+      case "blocked":
+      case "retry_later":
+      case "greylisted":
+        console.log(`📬 can_deliver = null (status: ${status}, cannot determine)`);
+        return null;
+      default:
+        return null;
+    }
+  }
+
   async verifyEmail(email: string): Promise<VerificationResult> {
     const startTime = Date.now();
     console.log(`\n🔍 Starting SMTP verification for: ${email}`);
 
     try {
-      // Step 1: Extract domain
       const domain = this.extractDomain(email);
       console.log(`📧 Domain extracted: ${domain}`);
 
-      // Step 2: Get MX Records
       const mxRecords = await this.getMXRecords(domain);
       if (mxRecords.length === 0) {
         console.error(`❌ No MX records found for domain: ${domain}`);
         return this.createResult(
-          email,
-          "invalid",
-          550,
-          "No MX",
-          1,
-          false,
-          false,
+          email, "invalid", 550, "No MX", 1,
+          false, false, false, null,
           "No MX records found for domain",
           Date.now() - startTime
         );
@@ -70,7 +118,6 @@ export class SMTPVerifier {
 
       console.log(`✅ Found ${mxRecords.length} MX record(s):`, mxRecords.map(mx => mx.exchange));
 
-      // Step 3: Try verification with retry logic
       let lastResult: VerificationResult | null = null;
       
       for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
@@ -85,22 +132,18 @@ export class SMTPVerifier {
         try {
           const result = await this.attemptSMTPVerification(email, mxRecords, attempt + 1, startTime);
           
-          // If successful or definitively invalid, return immediately
           if (result.status === "valid" || result.status === "invalid" || result.status === "catch_all") {
             console.log(`✅ Definitive result on attempt ${attempt + 1}: ${result.status}`);
             return result;
           }
 
-          // Store this result for potential return
           lastResult = result;
 
-          // For temporary errors or blocked, continue retrying
           if (result.status === "blocked" || result.status === "retry_later" || result.status === "greylisted") {
             console.log(`⚠️ Got ${result.status}, will retry...`);
             continue;
           }
 
-          // Unknown - try again
           if (result.status === "unknown") {
             console.log(`❓ Unknown result, will retry...`);
             continue;
@@ -109,20 +152,14 @@ export class SMTPVerifier {
         } catch (error: any) {
           console.error(`❌ Attempt ${attempt + 1} failed with error:`, error.message);
           lastResult = this.createResult(
-            email,
-            "unknown",
-            0,
-            mxRecords[0]?.exchange || "error",
-            attempt + 1,
-            false,
-            true,
+            email, "unknown", 0, mxRecords[0]?.exchange || "error",
+            attempt + 1, false, true, null, null,
             error.message,
             Date.now() - startTime
           );
         }
       }
 
-      // All attempts exhausted - return last result
       console.error(`❌ All ${MAX_RETRIES} attempts exhausted`);
       if (lastResult) {
         lastResult.attempts = MAX_RETRIES;
@@ -131,13 +168,8 @@ export class SMTPVerifier {
       }
 
       return this.createResult(
-        email,
-        "unknown",
-        0,
-        mxRecords[0]?.exchange || "unknown",
-        MAX_RETRIES,
-        false,
-        true,
+        email, "unknown", 0, mxRecords[0]?.exchange || "unknown",
+        MAX_RETRIES, false, true, null, null,
         "Verification failed after all retries",
         Date.now() - startTime
       );
@@ -145,29 +177,20 @@ export class SMTPVerifier {
     } catch (error: any) {
       console.error(`❌ Fatal error during verification:`, error);
       return this.createResult(
-        email,
-        "unknown",
-        0,
-        "error",
-        1,
-        false,
-        false,
+        email, "unknown", 0, "error", 1,
+        false, false, null, null,
         error.message || "Unknown error occurred",
         Date.now() - startTime
       );
     }
   }
 
-  /**
-   * Attempt SMTP verification against MX servers
-   */
   private async attemptSMTPVerification(
     email: string,
     mxRecords: MXRecord[],
     attemptNumber: number,
     startTime: number
   ): Promise<VerificationResult> {
-    // Try each MX server in priority order
     for (const mx of mxRecords) {
       console.log(`🌐 Connecting to MX server: ${mx.exchange} (priority: ${mx.priority})`);
 
@@ -180,7 +203,6 @@ export class SMTPVerifier {
         }
       } catch (error: any) {
         console.warn(`⚠️ MX server ${mx.exchange} failed: ${error.message}`);
-        // Try next MX server
         continue;
       }
     }
@@ -188,10 +210,6 @@ export class SMTPVerifier {
     throw new Error("All MX servers failed to respond");
   }
 
-  /**
-   * Perform SMTP handshake with a mail server
-   * Properly handles multi-line SMTP responses
-   */
   private async performSMTPHandshake(
     email: string,
     mxServer: string,
@@ -230,30 +248,20 @@ export class SMTPVerifier {
         console.log(`🔌 Connection closed during ${currentStep}`);
       });
 
-      /**
-       * Parse SMTP response - handles multi-line responses
-       * Multi-line format: "220-text" (dash = more lines coming)
-       * Final line format: "220 text" (space = last line)
-       */
       const parseSmtpResponse = (buffer: string): { code: number; complete: boolean; message: string } | null => {
         const lines = buffer.split("\r\n").filter(l => l.trim());
         if (lines.length === 0) return null;
 
         const lastLine = lines[lines.length - 1];
-        
-        // Check if we have a complete response (line with "code " pattern)
         const match = lastLine.match(/^(\d{3})([ -])(.*)/);
         if (!match) return null;
 
         const code = parseInt(match[1]);
         const separator = match[2];
-        const isComplete = separator === " "; // Space means final line
+        const isComplete = separator === " ";
 
-        if (!isComplete) {
-          return null; // Wait for more data
-        }
+        if (!isComplete) return null;
 
-        // Collect full message from all lines
         const fullMessage = lines.map(line => {
           const m = line.match(/^\d{3}[ -](.*)/);
           return m ? m[1] : line;
@@ -264,69 +272,75 @@ export class SMTPVerifier {
 
       const processResponse = () => {
         const parsed = parseSmtpResponse(responseBuffer);
-        if (!parsed || !parsed.complete) {
-          return; // Wait for more data
-        }
+        if (!parsed || !parsed.complete) return;
 
         const { code, message } = parsed;
         log("<<<", `${code} ${message.substring(0, 100)}${message.length > 100 ? '...' : ''}`);
         
-        // Clear buffer after processing
         responseBuffer = "";
 
         try {
           if (currentStep === "CONNECT") {
             if (code === 220) {
               currentStep = "EHLO";
-              const cmd = `EHLO cleansignups.com\r\n`;
-              socket.write(cmd);
+              socket.write(`EHLO cleansignups.com\r\n`);
               log(">>>", "EHLO cleansignups.com");
             } else {
               cleanup();
-              resolve(this.createResult(email, "blocked", code, mxServer, attemptNumber, false, false, `Server rejected connection: ${message}`, 0));
+              resolve(this.createResult(
+                email, "blocked", code, mxServer, attemptNumber,
+                false, false, null, null,
+                `Server rejected connection: ${message}`, 0
+              ));
               return;
             }
           } else if (currentStep === "EHLO") {
             if (code === 250) {
               currentStep = "MAIL_FROM";
-              const cmd = `MAIL FROM:<${this.fromEmail}>\r\n`;
-              socket.write(cmd);
+              socket.write(`MAIL FROM:<${this.fromEmail}>\r\n`);
               log(">>>", `MAIL FROM:<${this.fromEmail}>`);
             } else if (code === 500 || code === 502) {
-              // EHLO not supported, try HELO
               currentStep = "HELO";
-              const cmd = `HELO cleansignups.com\r\n`;
-              socket.write(cmd);
+              socket.write(`HELO cleansignups.com\r\n`);
               log(">>>", "HELO cleansignups.com (fallback)");
             } else {
               cleanup();
-              resolve(this.createResult(email, "blocked", code, mxServer, attemptNumber, false, code >= 400 && code < 500, `EHLO rejected: ${message}`, 0));
+              resolve(this.createResult(
+                email, "blocked", code, mxServer, attemptNumber,
+                false, code >= 400 && code < 500, null, null,
+                `EHLO rejected: ${message}`, 0
+              ));
               return;
             }
           } else if (currentStep === "HELO") {
             if (code === 250) {
               currentStep = "MAIL_FROM";
-              const cmd = `MAIL FROM:<${this.fromEmail}>\r\n`;
-              socket.write(cmd);
+              socket.write(`MAIL FROM:<${this.fromEmail}>\r\n`);
               log(">>>", `MAIL FROM:<${this.fromEmail}>`);
             } else {
               cleanup();
-              resolve(this.createResult(email, "blocked", code, mxServer, attemptNumber, false, code >= 400 && code < 500, `HELO rejected: ${message}`, 0));
+              resolve(this.createResult(
+                email, "blocked", code, mxServer, attemptNumber,
+                false, code >= 400 && code < 500, null, null,
+                `HELO rejected: ${message}`, 0
+              ));
               return;
             }
           } else if (currentStep === "MAIL_FROM") {
             if (code === 250) {
               currentStep = "RCPT_TO";
-              const cmd = `RCPT TO:<${email}>\r\n`;
-              socket.write(cmd);
+              socket.write(`RCPT TO:<${email}>\r\n`);
               log(">>>", `RCPT TO:<${email}>`);
             } else {
               cleanup();
-              resolve(this.createResult(email, "blocked", code, mxServer, attemptNumber, false, code >= 400 && code < 500, `MAIL FROM rejected: ${message}`, 0));
+              resolve(this.createResult(
+                email, "blocked", code, mxServer, attemptNumber,
+                false, code >= 400 && code < 500, null, null,
+                `MAIL FROM rejected: ${message}`, 0
+              ));
               return;
             }
           } else if (currentStep === "RCPT_TO") {
-            // This is the critical response
             const responseTime = Date.now() - handshakeStart;
 
             socket.write("QUIT\r\n");
@@ -337,10 +351,16 @@ export class SMTPVerifier {
             let isTemporary = false;
             let reason = message;
 
-            if (code === 250) {
+            const isInboxFull = this.detectInboxFull(code, message);
+
+            if (isInboxFull) {
+              console.log(`📦 INBOX FULL DETECTED for ${email}`);
+              status = "invalid";
+              reason = `Inbox is full: ${message}`;
+            } else if (code === 250) {
               console.log(`✅ RCPT TO accepted (250 OK) in ${responseTime}ms`);
               status = "valid";
-              reason = "Mailbox exists";
+              reason = "Mailbox exists and can receive mail";
             } else if (code === 251) {
               console.log(`✅ User not local, will forward (251)`);
               status = "valid";
@@ -350,15 +370,24 @@ export class SMTPVerifier {
               status = "catch_all";
               isCatchAll = true;
               reason = "Cannot verify user, but will accept message";
-            } else if (code === 550 || code === 551 || code === 552 || code === 553 || code === 554) {
+            } else if (code === 550 || code === 551 || code === 553 || code === 554) {
               console.log(`❌ Mailbox not found or rejected (${code})`);
               status = "invalid";
               reason = `Mailbox rejected: ${message}`;
-            } else if (code === 450 || code === 451 || code === 452) {
+            } else if (code === 552) {
+              console.log(`📦 Storage exceeded (552)`);
+              status = "invalid";
+              reason = `Storage exceeded: ${message}`;
+            } else if (code === 450 || code === 451) {
               console.log(`⏳ Temporary error (${code})`);
               status = "retry_later";
               isTemporary = true;
               reason = `Temporary error: ${message}`;
+            } else if (code === 452) {
+              console.log(`📦 Insufficient storage (452)`);
+              status = "retry_later";
+              isTemporary = true;
+              reason = `Insufficient storage: ${message}`;
             } else if (code === 421) {
               console.log(`🚫 Server busy (421)`);
               status = "retry_later";
@@ -384,8 +413,21 @@ export class SMTPVerifier {
               reason = `Unknown SMTP response: ${code} ${message}`;
             }
 
+            const canDeliver = this.determineDeliverability(status, isInboxFull);
+
+            console.log(`\n📊 FINAL SMTP ANALYSIS:`);
+            console.log(`   Status: ${status}`);
+            console.log(`   SMTP Code: ${code}`);
+            console.log(`   can_deliver: ${canDeliver}`);
+            console.log(`   is_inbox_full: ${isInboxFull}`);
+            console.log(`   Reason: ${reason}`);
+
             cleanup();
-            resolve(this.createResult(email, status, code, mxServer, attemptNumber, isCatchAll, isTemporary, reason, 0));
+            resolve(this.createResult(
+              email, status, code, mxServer, attemptNumber,
+              isCatchAll, isTemporary, canDeliver, isInboxFull,
+              reason, 0
+            ));
             return;
           }
         } catch (error: any) {
@@ -405,17 +447,11 @@ export class SMTPVerifier {
     });
   }
 
-  /**
-   * Get MX records for a domain
-   */
   private async getMXRecords(domain: string): Promise<MXRecord[]> {
     try {
       console.log(`🔍 Looking up MX records for: ${domain}`);
       const records = await resolveMx(domain);
-      
-      // Sort by priority (lower is higher priority)
       const sorted = records.sort((a, b) => a.priority - b.priority);
-      
       console.log(`✅ Found MX records:`, sorted);
       return sorted;
     } catch (error: any) {
@@ -424,9 +460,6 @@ export class SMTPVerifier {
     }
   }
 
-  /**
-   * Extract domain from email address
-   */
   private extractDomain(email: string): string {
     const parts = email.split("@");
     if (parts.length !== 2) {
@@ -435,9 +468,6 @@ export class SMTPVerifier {
     return parts[1].toLowerCase();
   }
 
-  /**
-   * Helper to create result object
-   */
   private createResult(
     email: string,
     status: VerificationStatus,
@@ -446,6 +476,8 @@ export class SMTPVerifier {
     attempts: number,
     is_catch_all: boolean,
     is_temporary_error: boolean,
+    can_deliver: boolean | null,
+    is_inbox_full: boolean | null,
     reason: string,
     time_taken_ms: number
   ): VerificationResult {
@@ -457,14 +489,13 @@ export class SMTPVerifier {
       attempts,
       is_catch_all,
       is_temporary_error,
+      can_deliver,
+      is_inbox_full,
       reason,
       time_taken_ms
     };
   }
 
-  /**
-   * Sleep utility
-   */
   private sleep(ms: number): Promise<void> {
     return new Promise(resolve => setTimeout(resolve, ms));
   }
